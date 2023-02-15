@@ -1605,6 +1605,8 @@ static Hashmap *find_suppliers_paths_for_module(const char *module)
         return hashmap_get(modules_suppliers, module);
 }
 
+static int level = 0;
+
 static int install_dependent_module(struct kmod_ctx *ctx, struct kmod_module *mod, Hashmap *suppliers_paths, int *err)
 {
         const char *path = NULL;
@@ -1619,6 +1621,9 @@ static int install_dependent_module(struct kmod_ctx *ctx, struct kmod_module *mo
                 return -1;
 
         if (check_hashmap(items, &path[kerneldirlen])) {
+                for (int l = 0 ; l < level ; l++)
+                        printf("\t");
+                printf("\tAlready installed\n");
                 return 0;
         }
 
@@ -1658,9 +1663,15 @@ static int install_dependent_modules(struct kmod_ctx *ctx, struct kmod_list *mod
         struct kmod_list *itr = NULL;
         int ret = 0;
 
+        level++;
+
         kmod_list_foreach(itr, modlist) {
                 _cleanup_kmod_module_unref_ struct kmod_module *mod = NULL;
                 mod = kmod_module_get_module(itr);
+                for (int l = 0 ; l < level ; l++) {
+                        printf("\t");
+                }
+                printf("Install moddep %s\n", kmod_module_get_name(mod));
                 if (install_dependent_module(ctx, mod, find_suppliers_paths_for_module(kmod_module_get_name(mod)), &ret))
                         return -1;
         }
@@ -1681,6 +1692,10 @@ static int install_dependent_modules(struct kmod_ctx *ctx, struct kmod_list *mod
                 find_suppliers_for_sys_node(ctx, suppliers, supplier_path, strlen(supplier_path));
 
                 if (!hashmap_isempty(modules)) { // Supplier is a module
+                        for (int l = 0 ; l < level ; l++) {
+                                printf("\t");
+                        }
+                        printf("Install supplier %s (module)\n", supplier_path);
                         const char *module;
                         Iterator j;
                         HASHMAP_FOREACH(module, modules, j) {
@@ -1691,10 +1706,15 @@ static int install_dependent_modules(struct kmod_ctx *ctx, struct kmod_list *mod
                                 }
                         }
                 } else { // Supplier is builtin
+                        for (int l = 0 ; l < level ; l++) {
+                                printf("\t");
+                        }
+                        printf("Install supplier %s (builtin)\n", supplier_path);
                         install_dependent_modules(ctx, NULL, suppliers);
                 }
         }
 
+        level--;
         return ret;
 }
 
@@ -1728,8 +1748,12 @@ static int install_module(struct kmod_ctx *ctx, struct kmod_module *mod)
         if (check_hashmap(items_failed, path))
                 return -1;
 
-        if (check_hashmap(items, path))
+        printf("INSTALL %s\n", name);
+
+        if (check_hashmap(items, path)) {
+                printf("\tAlready installed\n");
                 return 0;
+        }
 
         if (!check_module_path(path) || !check_module_symbols(mod)) {
                 log_debug("No symbol or path match for '%s'", path);
